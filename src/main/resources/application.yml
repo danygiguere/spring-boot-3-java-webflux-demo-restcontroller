@@ -1,0 +1,37 @@
+# Production-safe defaults: no profile active, no seed data, no dev tokens, no Swagger UI.
+# Local development runs with the dev profile (see application-dev.yml and `./gradlew bootRun`).
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  flyway:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME}
+    user: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jackson:
+    deserialization:
+      # Unknown request fields are rejected (400), never silently ignored.
+      fail-on-unknown-properties: true
+  codec:
+    # Request body cap. The largest valid body (post: 5000 chars + 10 image URLs) is well under it.
+    max-in-memory-size: 64KB
+
+springdoc:
+  api-docs:
+    enabled: false
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: false
+    path: /swagger-ui.html
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  jwt:
+    # HS256 key, at least 32 bytes. No default: the application refuses to start without it.
+    secret: ${JWT_SECRET:}
+    issuer: ${JWT_ISSUER:restcontroller-demo}
+    audience: ${JWT_AUDIENCE:restcontroller-demo-api}
+    ttl: 15m

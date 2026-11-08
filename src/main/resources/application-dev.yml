@@ -1,0 +1,29 @@
+# Local development only — never activate in production.
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:${DB_PORT:5432}/${DB_NAME:demo_spring_java_restcontroller}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  flyway:
+    url: jdbc:postgresql://localhost:${DB_PORT:5432}/${DB_NAME:demo_spring_java_restcontroller}
+    user: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    # db/seed holds R__dev_seed.sql, which EMPTIES the tables before filling them.
+    locations: classpath:db/migration,classpath:db/seed
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8086}
+  # Loopback only: the dev token endpoint must never be reachable from the network.
+  address: 127.0.0.1
+
+app:
+  jwt:
+    # Public dev key (it is in the repository): protects nothing, accepted only by the dev profile.
+    secret: ${JWT_SECRET:dev-only-key-never-use-in-production-0123456789}
+    ttl: 1h
