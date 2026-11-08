@@ -24,6 +24,8 @@ tests; only the web layer differs). Built on the domain of
 - **Bean Validation (i18n)** — `@Valid` bodies and constrained `@RequestParam`/`@PathVariable`/`@RequestHeader`
   (built-in method validation); messages re-interpolated in the request's locale (`ViolationMessages`); unknown JSON
   fields rejected; bounded pagination and body size
+- **Custom validators** — `@SafeText` (field-level: rejects HTML tags and control characters) and `@NoDuplicates`
+  (collection-level) in `validation/`, each a `ConstraintValidator` with localized messages; unit-tested without Spring
 - **Swagger / OpenAPI** — Springdoc, with a bearer-token **Authorize** button (dev profile only)
 - **Spotless** — palantir-java-format; a formatting violation fails the build
 - **Testcontainers** — integration tests against a real PostgreSQL
