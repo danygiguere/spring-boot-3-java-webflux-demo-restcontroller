@@ -15,7 +15,7 @@ Guidance for AI agents working in this repository. Read this before making chang
 ## Project
 
 Spring Boot 3 + Java demo built on a **fully reactive** stack, using **annotated controllers** (`@RestController`)
-with typed `Mono`/`Flux` signatures. Twin of `../spring-boot-3-java-demo-router` (same services, repositories, API).
+with typed `Mono`/`Flux` signatures. Twin of `../spring-boot-3-java-webflux-demo-router` (same services, repositories, API).
 
 **Stack:** Java 21 · Spring Boot 3.5 · WebFlux · Spring Security (OAuth2 resource server, JWT) · R2DBC · PostgreSQL ·
 Flyway · Springdoc/OpenAPI · Testcontainers

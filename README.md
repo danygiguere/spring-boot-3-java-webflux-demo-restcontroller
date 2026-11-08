@@ -2,8 +2,8 @@
 
 A demo project showcasing Spring Boot 3 development in Java with **annotated controllers** (`@RestController`) and
 **Mono/Flux** end to end, on a fully reactive stack. It is the Java counterpart of
-[spring-boot-3-kotlin-demo-restcontroller](../../Kotlin/spring-boot-3-kotlin-demo-restcontroller), and the
-`@RestController` twin of [spring-boot-3-java-demo-router](../spring-boot-3-java-demo-router) (same API, services and
+[spring-boot-3-kotlin-demo-restcontroller](../spring-boot-3-kotlin-demo-restcontroller), and the
+`@RestController` twin of [spring-boot-3-java-webflux-demo-router](../spring-boot-3-java-webflux-demo-router) (same API, services and
 tests; only the web layer differs). Built on the domain of
 [spring-boot-java-audit-skills-demo](../spring-boot-java-audit-skills-demo), and written to respect every invariant of
 [audit-skills](../../audit-skills) (see [AGENTS.md](AGENTS.md)).

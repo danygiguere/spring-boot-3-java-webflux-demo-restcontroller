@@ -1,1 +1,1 @@
-rootProject.name = "spring-boot-3-java-demo-restcontroller"
+rootProject.name = "spring-boot-3-java-webflux-demo-restcontroller"
