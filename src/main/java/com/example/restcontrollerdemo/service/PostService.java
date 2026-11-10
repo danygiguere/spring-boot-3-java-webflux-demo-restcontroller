@@ -32,8 +32,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Posts are visible to the author's enterprise and writable by the author only. Both checks happen here, at the point
- * of action, from the verified token — never from ids in the request body.
+ * Posts are visible to every user and writable by the author only. The author check happens here, at the point of
+ * action, from the verified token — never from ids in the request body.
  */
 @Service
 public class PostService {
@@ -44,7 +44,6 @@ public class PostService {
     private final UserRepository userRepository;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final UserService userService;
-    private final PostSummaryLoader summaryLoader;
     private final TransactionalOperator transactionalOperator;
     private final Clock clock;
 
@@ -55,7 +54,6 @@ public class PostService {
             UserRepository userRepository,
             IdempotencyKeyRepository idempotencyKeyRepository,
             UserService userService,
-            PostSummaryLoader summaryLoader,
             TransactionalOperator transactionalOperator,
             Clock clock) {
         this.postRepository = postRepository;
@@ -64,49 +62,49 @@ public class PostService {
         this.userRepository = userRepository;
         this.idempotencyKeyRepository = idempotencyKeyRepository;
         this.userService = userService;
-        this.summaryLoader = summaryLoader;
         this.transactionalOperator = transactionalOperator;
         this.clock = clock;
     }
 
     // --- Reads ----------------------------------------------------------------------------------------------------
 
-    public Flux<PostSummary> feed(AuthenticatedUser me, long beforeId, int limit) {
-        return summaryLoader.load(postRepository.findFeed(me.enterpriseId(), beforeId, limit), me.enterpriseId());
+    public Flux<PostSummary> feed(long beforeId, int limit) {
+        return postRepository.findFeed(beforeId, limit).map(PostSummary::of);
     }
 
-    public Flux<PostSummary> findByAuthor(AuthenticatedUser me, long userId, long beforeId, int limit) {
+    /** The existence check runs first, so a 404 is raised before any byte is written. */
+    public Flux<PostSummary> findByAuthor(long userId, long beforeId, int limit) {
         return userService
-                .requireColleague(me, userId)
-                .thenMany(summaryLoader.load(
-                        postRepository.findByAuthor(userId, me.enterpriseId(), beforeId, limit), me.enterpriseId()));
+                .requireUser(userId)
+                .thenMany(postRepository.findByAuthor(userId, beforeId, limit))
+                .map(PostSummary::of);
     }
 
-    public Flux<PostSummary> findLikedBy(AuthenticatedUser me, long userId, long beforeId, int limit) {
+    public Flux<PostSummary> findLikedBy(long userId, long beforeId, int limit) {
         return userService
-                .requireColleague(me, userId)
-                .thenMany(summaryLoader.load(
-                        postRepository.findLikedBy(userId, me.enterpriseId(), beforeId, limit), me.enterpriseId()));
+                .requireUser(userId)
+                .thenMany(postRepository.findLikedBy(userId, beforeId, limit))
+                .map(PostSummary::of);
     }
 
     /** The post, its author, images and like count: three independent queries run concurrently. */
-    public Mono<PostDetails> findById(AuthenticatedUser me, long id) {
-        return requireVisible(me, id).flatMap(post -> Mono.zip(
-                        userService.requireColleague(me, post.userId()),
+    public Mono<PostDetails> findById(long id) {
+        return requirePost(id).flatMap(post -> Mono.zip(
+                        userService.requireUser(post.userId()),
                         imageRepository.findAllByPostIdOrderByPositionAsc(id).collectList(),
                         postLikeRepository.countByPostId(id))
                 .map(t -> PostDetails.of(post, t.getT1(), t.getT2(), t.getT3())));
     }
 
-    public Flux<ImageResponse> findImages(AuthenticatedUser me, long id) {
-        return requireVisible(me, id)
+    public Flux<ImageResponse> findImages(long id) {
+        return requirePost(id)
                 .thenMany(imageRepository.findAllByPostIdOrderByPositionAsc(id))
                 .map(ImageResponse::of);
     }
 
-    public Flux<UserResponse> findLikers(AuthenticatedUser me, long id, long afterId, int limit) {
-        return requireVisible(me, id)
-                .thenMany(userRepository.findLikersInEnterprise(id, me.enterpriseId(), afterId, limit))
+    public Flux<UserResponse> findLikers(long id, long afterId, int limit) {
+        return requirePost(id)
+                .thenMany(userRepository.findLikers(id, afterId, limit))
                 .map(UserResponse::of);
     }
 
@@ -135,7 +133,7 @@ public class PostService {
                 .transactional(firstAttempt.switchIfEmpty(retry))
                 .flatMap(claim -> switch (claim) {
                     case Claim.Inserted inserted -> Mono.just(new CreatedPost(inserted.post(), false));
-                    case Claim.AlreadyCreated replay -> findById(me, replay.postId())
+                    case Claim.AlreadyCreated replay -> findById(replay.postId())
                             .map(details -> new CreatedPost(details, true));
                 });
     }
@@ -151,7 +149,7 @@ public class PostService {
     public Mono<PostDetails> update(AuthenticatedUser me, long id, UpdatePostRequest request) {
         return requireAuthor(me, id)
                 .flatMap(post -> postRepository.updateContent(id, me.userId(), request.content()))
-                .flatMap(rows -> rows == 1 ? findById(me, id) : Mono.error(postNotFound(id)));
+                .flatMap(rows -> rows == 1 ? findById(id) : Mono.error(postNotFound(id)));
     }
 
     /** Only the author may delete. Images and likes go with the post (ON DELETE CASCADE). */
@@ -163,9 +161,9 @@ public class PostService {
 
     /** Idempotent: liking twice keeps one like. */
     public Mono<Void> like(AuthenticatedUser me, long id) {
-        return requireVisible(me, id)
+        return requirePost(id)
                 .flatMap(post -> postLikeRepository.likeIfAbsent(id, me.userId()))
-                // The post was deleted between the visibility check and the insert (foreign key violation).
+                // The post was deleted between the existence check and the insert (foreign key violation).
                 .onErrorMap(
                         DataIntegrityViolationException.class,
                         e -> new AppException.NotFound(e, "error.post.not.found", id))
@@ -174,7 +172,7 @@ public class PostService {
 
     /** Idempotent: unliking a post that is not liked changes nothing. */
     public Mono<Void> unlike(AuthenticatedUser me, long id) {
-        return requireVisible(me, id)
+        return requirePost(id)
                 .flatMap(post -> postLikeRepository.unlike(id, me.userId()))
                 .then();
     }
@@ -182,7 +180,7 @@ public class PostService {
     // --- Helpers --------------------------------------------------------------------------------------------------
 
     private Mono<PostDetails> insertPost(AuthenticatedUser me, CreatePostRequest request, Instant now) {
-        return userService.requireColleague(me, me.userId()).flatMap(author -> postRepository
+        return userService.requireUser(me.userId()).flatMap(author -> postRepository
                 .save(new Post(null, author.id(), request.content(), now))
                 .flatMap(post -> imageRepository
                         .saveAll(toImages(post.id(), request.imageUrls()))
@@ -224,13 +222,13 @@ public class PostService {
         builder.append(value.length()).append(':').append(value);
     }
 
-    private Mono<Post> requireVisible(AuthenticatedUser me, long id) {
-        return postRepository.findVisible(id, me.enterpriseId()).switchIfEmpty(Mono.error(() -> postNotFound(id)));
+    private Mono<Post> requirePost(long id) {
+        return postRepository.findById(id).switchIfEmpty(Mono.error(() -> postNotFound(id)));
     }
 
-    /** Visible but not authored by the caller is a 403: the post's existence is no secret within the enterprise. */
+    /** Not authored by the caller is a 403: every post is visible, so its existence is no secret. */
     private Mono<Post> requireAuthor(AuthenticatedUser me, long id) {
-        return requireVisible(me, id)
+        return requirePost(id)
                 .flatMap(post -> post.userId().equals(me.userId())
                         ? Mono.just(post)
                         : Mono.error(new AppException.Forbidden("error.post.not.author", id)));

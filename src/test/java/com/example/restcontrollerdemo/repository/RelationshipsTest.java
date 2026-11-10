@@ -5,15 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.restcontrollerdemo.domain.entity.Image;
 import com.example.restcontrollerdemo.domain.entity.Post;
 import com.example.restcontrollerdemo.domain.entity.User;
+import com.example.restcontrollerdemo.dto.PostSummaryRow;
 import com.example.restcontrollerdemo.support.IntegrationTest;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/**
- * Each relationship of the model, on the seed: user u belongs to enterprise (u - 1) / 10 + 1; post p belongs to user
- * (p - 1) / 4 + 1, has (p % 4) images and (p % 7) likes.
- */
+/** Each relationship of the model, on the seed: post p belongs to user (p - 1) / 4 + 1, has (p % 4) images and (p % 7) likes. */
 class RelationshipsTest extends IntegrationTest {
 
     @Autowired
@@ -32,12 +30,10 @@ class RelationshipsTest extends IntegrationTest {
     PostLikeRepository postLikeRepository;
 
     @Test
-    void belongsTo_post5IsBobsInEnterprise1() {
+    void belongsTo_post5IsBobs() {
         Post post = postRepository.findById(5L).block();
-        User author = userRepository.findById(post.userId()).block();
 
-        assertThat(author.name()).isEqualTo("Bob");
-        assertThat(author.enterpriseId()).isEqualTo(1L);
+        assertThat(userRepository.findById(post.userId()).block().name()).isEqualTo("Bob");
     }
 
     @Test
@@ -47,8 +43,8 @@ class RelationshipsTest extends IntegrationTest {
 
     @Test
     void hasMany_userPostsAndPostImagesInOrder() {
-        List<Post> posts = postRepository
-                .findByAuthor(1L, 1L, Long.MAX_VALUE, 100)
+        List<PostSummaryRow> posts = postRepository
+                .findByAuthor(1L, Long.MAX_VALUE, 100)
                 .collectList()
                 .block();
         List<Image> images = imageRepository
@@ -56,7 +52,9 @@ class RelationshipsTest extends IntegrationTest {
                 .collectList()
                 .block();
 
-        assertThat(posts).extracting(Post::id).containsExactly(4L, 3L, 2L, 1L);
+        assertThat(posts).extracting(PostSummaryRow::id).containsExactly(4L, 3L, 2L, 1L);
+        assertThat(posts).extracting(PostSummaryRow::imageCount).containsExactly(0L, 3L, 2L, 1L);
+        assertThat(posts).allSatisfy(post -> assertThat(post.authorName()).isEqualTo("Alice"));
         assertThat(images).extracting(Image::position).containsExactly(1, 2, 3);
         assertThat(imageRepository
                         .findAllByPostIdOrderByPositionAsc(4L)
@@ -66,37 +64,32 @@ class RelationshipsTest extends IntegrationTest {
     }
 
     @Test
-    void hasManyThrough_enterprise3Has40Posts() {
-        List<Post> posts =
-                postRepository.findFeed(3L, Long.MAX_VALUE, 100).collectList().block();
+    void hasManyThrough_user1Has6ImagesThroughPosts1To3() {
+        List<Image> images = imageRepository
+                .findByUser(1L, Long.MAX_VALUE, 100)
+                .collectList()
+                .block();
 
-        assertThat(posts).hasSize(40);
-        assertThat(posts).allSatisfy(post -> assertThat(post.userId()).isBetween(21L, 30L));
+        assertThat(images).extracting(Image::id).containsExactly(6L, 5L, 4L, 3L, 2L, 1L);
+        assertThat(images).extracting(Image::postId).containsOnly(3L, 2L, 1L);
+        assertThat(imageRepository.findByUser(1L, 4L, 2).collectList().block())
+                .extracting(Image::id)
+                .containsExactly(3L, 2L);
     }
 
     @Test
     void manyToMany_bothDirections() {
-        List<User> likers = userRepository
-                .findLikersInEnterprise(6L, 1L, 0, 100)
-                .collectList()
-                .block();
+        List<User> likers = userRepository.findLikers(6L, 0, 100).collectList().block();
 
         assertThat(likers).hasSize(6);
         assertThat(postLikeRepository.countByPostId(6L).block()).isEqualTo(6L);
         for (User liker : likers) {
             assertThat(postRepository
-                            .findLikedBy(liker.id(), 1L, Long.MAX_VALUE, 100)
+                            .findLikedBy(liker.id(), Long.MAX_VALUE, 100)
                             .collectList()
                             .block())
-                    .extracting(Post::id)
+                    .extracting(PostSummaryRow::id)
                     .contains(6L);
         }
-    }
-
-    @Test
-    void tenantScopedQueries_returnNothingAcrossEnterprises() {
-        assertThat(userRepository.findInEnterprise(11L, 1L).block()).isNull();
-        assertThat(postRepository.findVisible(41L, 1L).block()).isNull();
-        assertThat(postRepository.findVisible(41L, 2L).block()).isNotNull();
     }
 }

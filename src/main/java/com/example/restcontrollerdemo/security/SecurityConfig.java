@@ -30,7 +30,7 @@ import org.springframework.security.web.server.authorization.ServerAccessDeniedH
 
 /**
  * Stateless bearer-token API. This filter chain only AUTHENTICATES; whether the caller may touch a given resource
- * (same enterprise, author) is checked in the service at the point of action.
+ * (author) is checked in the service at the point of action.
  */
 @Configuration
 @EnableWebFluxSecurity
@@ -97,19 +97,14 @@ public class SecurityConfig {
         return decoder;
     }
 
-    /** {@code sub} is a positive user id and {@code enterpriseId} a number: a malformed claim is a 401, not a 500. */
+    /** {@code sub} is a positive user id: a malformed claim is a 401, not a 500. */
     static OAuth2TokenValidator<Jwt> claimShapeValidator() {
         return jwt -> {
             String subject = jwt.getSubject();
-            Object enterpriseId = jwt.getClaims().get(AuthenticatedUser.ENTERPRISE_ID_CLAIM);
-            boolean valid = subject != null
-                    && NUMERIC.matcher(subject).matches()
-                    && enterpriseId instanceof Number number
-                    && number.longValue() > 0;
-            return valid
+            return subject != null && NUMERIC.matcher(subject).matches()
                     ? OAuth2TokenValidatorResult.success()
                     : OAuth2TokenValidatorResult.failure(
-                            new OAuth2Error("invalid_token", "Missing or malformed sub/enterpriseId claim", null));
+                            new OAuth2Error("invalid_token", "Missing or malformed sub claim", null));
         };
     }
 

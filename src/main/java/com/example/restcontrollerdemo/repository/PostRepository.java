@@ -1,6 +1,7 @@
 package com.example.restcontrollerdemo.repository;
 
 import com.example.restcontrollerdemo.domain.entity.Post;
+import com.example.restcontrollerdemo.dto.PostSummaryRow;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -8,53 +9,55 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * A post is visible to users of its author's enterprise. Every read takes the caller's {@code enterpriseId}; every
- * write also takes the author's {@code userId}, so the WHERE clause is the permission check and targets at most one
- * row (primary key).
+ * A post is visible to every user and writable by its author: every write takes the author's {@code userId}, so the
+ * WHERE clause is the permission check and targets at most one row (primary key). List queries return a page of
+ * summaries in one statement, newest first, keyset-paginated.
  */
 public interface PostRepository extends ReactiveCrudRepository<Post, Long> {
 
-    @Query(
+    /**
+     * Columns of {@link PostSummaryRow}, selected from a page {@code p} of posts. The page is limited first, so the
+     * counts run for at most {@code limit} posts (indexed by UNIQUE (post_id, …)).
+     */
+    String SUMMARY_COLUMNS =
             """
-            SELECT p.* FROM posts p
-            JOIN users u ON u.id = p.user_id
-            WHERE p.id = :postId AND u.enterprise_id = :enterpriseId
-            """)
-    Mono<Post> findVisible(Long postId, Long enterpriseId);
+            SELECT p.id, p.user_id, u.name AS author_name, p.content, p.created_at,
+                   (SELECT COUNT(*) FROM images i WHERE i.post_id = p.id) AS image_count,
+                   (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count
+            """;
 
-    /** hasManyThrough (enterprise → users → posts), newest first, keyset-paginated. */
-    @Query(
+    /** Joins the author and keeps the page order. */
+    String SUMMARY_JOIN =
             """
-            SELECT p.* FROM posts p
             JOIN users u ON u.id = p.user_id
-            WHERE u.enterprise_id = :enterpriseId AND p.id < :beforeId
             ORDER BY p.id DESC
-            LIMIT :limit
-            """)
-    Flux<Post> findFeed(Long enterpriseId, long beforeId, int limit);
+            """;
+
+    /** All posts. */
+    @Query(SUMMARY_COLUMNS
+            + "FROM (SELECT * FROM posts WHERE id < :beforeId ORDER BY id DESC LIMIT :limit) p\n"
+            + SUMMARY_JOIN)
+    Flux<PostSummaryRow> findFeed(long beforeId, int limit);
 
     /** hasMany (user → posts). */
-    @Query(
-            """
-            SELECT p.* FROM posts p
-            JOIN users u ON u.id = p.user_id
-            WHERE p.user_id = :userId AND u.enterprise_id = :enterpriseId AND p.id < :beforeId
-            ORDER BY p.id DESC
-            LIMIT :limit
-            """)
-    Flux<Post> findByAuthor(Long userId, Long enterpriseId, long beforeId, int limit);
+    @Query(SUMMARY_COLUMNS
+            + "FROM (SELECT * FROM posts WHERE user_id = :userId AND id < :beforeId ORDER BY id DESC LIMIT :limit) p\n"
+            + SUMMARY_JOIN)
+    Flux<PostSummaryRow> findByAuthor(Long userId, long beforeId, int limit);
 
     /** manyToMany — posts liked by a user, through post_likes. */
-    @Query(
+    @Query(SUMMARY_COLUMNS
+            + """
+            FROM (
+                SELECT q.* FROM posts q
+                JOIN post_likes pl ON pl.post_id = q.id
+                WHERE pl.user_id = :userId AND q.id < :beforeId
+                ORDER BY q.id DESC
+                LIMIT :limit
+            ) p
             """
-            SELECT p.* FROM posts p
-            JOIN users u ON u.id = p.user_id
-            JOIN post_likes l ON l.post_id = p.id
-            WHERE l.user_id = :userId AND u.enterprise_id = :enterpriseId AND p.id < :beforeId
-            ORDER BY p.id DESC
-            LIMIT :limit
-            """)
-    Flux<Post> findLikedBy(Long userId, Long enterpriseId, long beforeId, int limit);
+            + SUMMARY_JOIN)
+    Flux<PostSummaryRow> findLikedBy(Long userId, long beforeId, int limit);
 
     /** Returns the number of rows updated: 1, or 0 when the post is gone or not the caller's. */
     @Modifying
